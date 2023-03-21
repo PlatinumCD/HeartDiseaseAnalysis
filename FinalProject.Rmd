@@ -1,0 +1,1129 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, results='hide', echo=FALSE}
+library(ggplot2)
+library(reshape)
+library(ggpubr)
+library(cowplot)
+library(vtable)
+library(caret)
+library(glmnet)
+```
+# Final Project
+
+## Heart Disease Analysis - Cameron Durbin
+
+## Data
+
+In this section, I will introduce the data set. This includes the details on how the data was collected, preprocessed, and explored. This section will provide the foundation for the rest of the report.
+
+### Data Collection
+
+In this subsection, I will describe where the data originates and the quality of the data.
+
+#### Data Source
+
+The data set originates from the Behavioral Risk Factor Surveillance System (BRFSS), a program conducted by the CDC that annually collects health-related data on U.S. residents through telephone surveys. This data set can be found [here](https://www.kaggle.com/datasets/kamilpytlak/personal-key-indicators-of-heart-disease). As of February 15, 2022, the data set comprises data from the year 2020, containing 401,958 rows and 279 columns. The data was created to develop predictive models to identify individuals at risk for various health conditions and to tailor interventions to their specific needs.
+
+#### Data Quality
+
+In order for this data set to be usable for data science projects, the original data set was reduced to 319,795 rows and 18 relevant variables. This data set is full as in the data does not have any `N/A` values. This makes the data very easy to work with.
+
+### Data Preprocessing
+
+In this subsection, I will begin to work with the data. This includes loading and cleaning the data.
+
+#### Loading the data
+
+The data set is named `heart.csv` and is located on my desktop for this analysis.
+
+```{r}
+heart_data = read.csv("~/Desktop/heart.csv")
+```
+
+The data set contains `r dim(heart_data)[1]` rows and `r dim(heart_data)[2]` columns. The description for each variable is listed below.
+
+```{r, echo=FALSE}
+column_descriptions = c(
+  "Indicates if the individual has a history of heart disease or not",
+  "A measure of body fat based on height and weight",
+  "Indicates if the individual is a smoker or not",
+  "Indicates if the individual consumes alcohol or not", 
+  "Indicates if the individual has a history of stroke or not",
+  "A measure of the individual's physical health status",
+  "A measure of the individual's mental health status",
+  "Indicates if the individual has difficulty walking or not",
+  "Indicates the individual's gender",
+  "The age group the individual belongs to",
+  "The individual's race/ethnicity",
+  "Indicates if the individual has diabetes or not",
+  "A measure of the individual's physical activity level",
+  "A measure of the individual's overall general health",
+  "A measure of the individual's average sleep time per night",
+  "Indicates if the individual has asthma or not",
+  "Indicates if the individual has a history of kidney disease or not",
+  "Indicates if the individual has a history of skin cancer or not"
+)
+
+columns_table = as.data.frame(cbind(colnames(heart_data), column_descriptions))
+colnames(columns_table) = columns = c("Variables", "Description")
+```
+
+```{r, echo=False}
+kable(columns_table) %>% kable_styling()
+```
+
+#### Cleaning the data
+
+Some of the variables contain "Yes" and "No" values, "Male" and "Female", "Black" and "White" values. We will convert these qualitative values to quantitative values.
+
+For values with "Yes", we will change them to 1 and values with "No", we will change them to 0.
+
+For values with "Male", we will change them to 1 and values with "Female", we will change them to 0.
+
+For values with "Black", we will change them to 1 and values with "White", we will change them to 0.
+
+```{r}
+heart_data$HeartDisease <- ifelse(heart_data$HeartDisease == "Yes", 1, 0)
+heart_data$Smoking <- ifelse(heart_data$Smoking == "Yes", 1, 0)
+heart_data$AlcoholDrinking <- ifelse(heart_data$AlcoholDrinking == "Yes", 1, 0)
+heart_data$Stroke <- ifelse(heart_data$Stroke == "Yes", 1, 0)
+heart_data$DiffWalking <- ifelse(heart_data$DiffWalking == "Yes", 1, 0)
+heart_data$Sex <- ifelse(heart_data$Sex == "Male", 1, 0)
+heart_data$Race <- ifelse(heart_data$Race == "Black", 1, 0)
+heart_data$PhysicalActivity <- ifelse(heart_data$PhysicalActivity == "Yes", 1, 0)
+heart_data$Asthma <- ifelse(heart_data$Asthma == "Yes", 1, 0)
+heart_data$KidneyDisease <- ifelse(heart_data$KidneyDisease == "Yes", 1, 0)
+heart_data$SkinCancer <- ifelse(heart_data$SkinCancer == "Yes", 1, 0)
+```
+
+For qualitative variables with more than 2 unique values, we will add levels to the variable. This applies to the `AgeCategory`, `GenHealth`, and `Diabetic` variables.
+
+For `AgeCategory`, we set the levels to:
+
+```{r}
+AgeCategoryLevels = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+```
+
+For `GenHealth`, we set the levels to:
+
+```{r}
+GenHealthLevels = c("Poor", "Fair", "Good", "Very good", "Excellent")
+```
+
+For `Diabetic`, we set the levels to:
+
+```{r}
+DiabeticLevels = c("No", "No, borderline diabetes", "Yes", "Yes (during pregnancy)")
+```
+
+Applying the levels to the data set, we use:
+
+```{r}
+heart_data$AgeCategory = factor(heart_data$AgeCategory, levels = AgeCategoryLevels)
+heart_data$GenHealth = factor(heart_data$GenHealth, levels = GenHealthLevels)
+heart_data$Diabetic = factor(heart_data$Diabetic, levels = DiabeticLevels)
+```
+
+### Data Exploration
+
+With our cleaned data, we can now provide a summary statistics of the data.
+
+```{r, echo=False}
+st(heart_data, out = "kable") %>% kable_styling()
+```
+
+
+## Questions
+
+### Research Questions
+
+The research questions I propose are divided into 3 sections: Demographics, Body Condition, and Increased Risk.
+
+#### Demographics
+
+1.  What indicators differentiate heart disease in various demographic groups?
+
+#### Body Condition
+
+2.  Is there a relationship between physical activity and the presence of heart disease?
+3.  Is there a relationship between higher BMI and the presence of heart disease?
+4.  Is there a relationship between diabetes and the presence of heart disease?
+5.  Is there a relationship between asthma and the presence of heart disease?
+6.  Is there a relationship between skin cancer and the presence of heart disease?
+
+#### Increased Risk
+
+7.  Does smoking or alcohol consumption increase the risk of heart disease?
+8.  Does insufficient sleep increase the risk of heart disease?
+
+### Hypotheses
+
+For each question section, I will address my hypothesis to each question.
+
+#### Demographics
+
+1.  Regarding the indicators of heart disease among different demographic groups, I hypothesize that age, sex, and race will be significant predictors of heart disease. Older age, male sex, and certain racial groups may be associated with a higher presence of heart disease.
+
+#### Body Condition
+
+2.  Regarding the relationship between physically activity and heart disease, I hypothesize that physically active individuals will have a lower presence of heart disease due to the benefits of exercise on cardiovascular health.
+
+3.  Regarding the relationship between BMI and heart disease, I hypothesize that higher BMI will be associated with a higher presence of heart disease due to the increased pressure on the heart and blood vessels.
+
+4.  Regarding the relationship between diabetes and heart disease, I hypothesize that people with diabetes will have a higher presence of heart disease due to the negative effects of high blood sugar levels on the heart and blood vessels.
+
+5.  Regarding the relationship between asthma and heart disease, I hypothesize that people with these conditions will have a higher presence of heart disease due to the negative effects they can have on cardiovascular health.
+
+6.  Regarding the relationship between skin cancer and heart disease, I hypothesize that there will be no significant relationship between the two conditions as they do not share any common risk factors.
+
+#### Increased Risk
+
+7.  Regarding the relationship between smoking/alcohol use and heart disease, I hypothesize that smokers and heavy drinkers will have a higher presence of heart disease due to the negative effects of these substances on cardiovascular health.
+
+8.  Regarding the relationship between sleep and heart disease, I hypothesize that people who do not get enough hours of sleep will have a higher presence of heart disease compared to those who get enough sleep.
+
+### Objectives
+
+The objective of these questions is to investigate the relationship between various demographic, lifestyle, and health factors and the likelihood of developing heart disease. 
+
+The questions listed above aim to identify key indicators of heart disease, explore correlations between predictor variables and heart disease, and examine differences in heart disease presence between different groups based on physical activity, BMI, smoking and alcohol consumption, mental health, diabetes, sleep, and other health conditions. These questions can help an average person understand their personal risk factors for heart disease, the impact of lifestyle factors on heart health, and the relationship between different health conditions and heart disease. 
+
+#### Most Importantly
+
+This knowledge can empower individuals to make informed decisions about their health and take steps to reduce their risk of developing heart disease.
+
+## Visualization
+### Demographics
+
+For visualizing the demographics, we want to take a close look at `AgeCategory`, `Sex`, and `Race`. 
+
+#### Age Category
+
+The `AgeCategory` is described as the age group the individual belongs to. The age categories include: 18-24, 25-29, 30-34, 35-39, 40-44, 45-49, 50-54, 55-59, 60-64, 65-69, 70-74, 75-79, 80 or older. As age increases, the prevalence of heart disease also increases. This can be observed by plotting the counts of individuals with and without heart disease categorized by age. To make sure the graph can be visibly interpreted, the graphs will use a `Log Count`.
+
+```{r, echo=False}
+age1_data_tot <- dim(heart_data[heart_data$AgeCategory == "18-24", ])[1]
+age2_data_tot <- dim(heart_data[heart_data$AgeCategory == "25-29", ])[1]
+age3_data_tot <- dim(heart_data[heart_data$AgeCategory == "30-34", ])[1]
+age4_data_tot <- dim(heart_data[heart_data$AgeCategory == "35-39", ])[1]
+age5_data_tot <- dim(heart_data[heart_data$AgeCategory == "40-44", ])[1]
+age6_data_tot <- dim(heart_data[heart_data$AgeCategory == "45-49", ])[1]
+age7_data_tot <- dim(heart_data[heart_data$AgeCategory == "50-54", ])[1]
+age8_data_tot <- dim(heart_data[heart_data$AgeCategory == "55-59", ])[1]
+age9_data_tot <- dim(heart_data[heart_data$AgeCategory == "60-64", ])[1]
+age10_data_tot <- dim(heart_data[heart_data$AgeCategory == "65-69", ])[1]
+age11_data_tot <- dim(heart_data[heart_data$AgeCategory == "70-74", ])[1]
+age12_data_tot <- dim(heart_data[heart_data$AgeCategory == "75-79", ])[1]
+age13_data_tot <- dim(heart_data[heart_data$AgeCategory == "80 or older", ])[1]
+
+age1_data_w = dim(heart_data[heart_data$AgeCategory == "18-24" & heart_data$HeartDisease == 1, ])[1]
+age1_data_wo = dim(heart_data[heart_data$AgeCategory == "18-24" & heart_data$HeartDisease == 0, ])[1]
+
+age2_data_w = dim(heart_data[heart_data$AgeCategory == "25-29" & heart_data$HeartDisease == 1, ])[1]
+age2_data_wo = dim(heart_data[heart_data$AgeCategory == "25-29" & heart_data$HeartDisease == 0, ])[1]
+
+age3_data_w = dim(heart_data[heart_data$AgeCategory == "30-34" & heart_data$HeartDisease == 1, ])[1]
+age3_data_wo = dim(heart_data[heart_data$AgeCategory == "30-34" & heart_data$HeartDisease == 0, ])[1]
+
+age4_data_w = dim(heart_data[heart_data$AgeCategory == "35-39" & heart_data$HeartDisease == 1, ])[1]
+age4_data_wo = dim(heart_data[heart_data$AgeCategory == "35-39" & heart_data$HeartDisease == 0, ])[1]
+
+age5_data_w = dim(heart_data[heart_data$AgeCategory == "40-44" & heart_data$HeartDisease == 1, ])[1]
+age5_data_wo = dim(heart_data[heart_data$AgeCategory == "40-44" & heart_data$HeartDisease == 0, ])[1]
+
+age6_data_w = dim(heart_data[heart_data$AgeCategory == "45-49" & heart_data$HeartDisease == 1, ])[1]
+age6_data_wo = dim(heart_data[heart_data$AgeCategory == "45-49" & heart_data$HeartDisease == 0, ])[1]
+
+age7_data_w = dim(heart_data[heart_data$AgeCategory == "50-54" & heart_data$HeartDisease == 1, ])[1]
+age7_data_wo = dim(heart_data[heart_data$AgeCategory == "50-54" & heart_data$HeartDisease == 0, ])[1]
+
+age8_data_w = dim(heart_data[heart_data$AgeCategory == "55-59" & heart_data$HeartDisease == 1, ])[1]
+age8_data_wo = dim(heart_data[heart_data$AgeCategory == "55-59" & heart_data$HeartDisease == 0, ])[1]
+
+age9_data_w = dim(heart_data[heart_data$AgeCategory == "60-64" & heart_data$HeartDisease == 1, ])[1]
+age9_data_wo = dim(heart_data[heart_data$AgeCategory == "60-64" & heart_data$HeartDisease == 0, ])[1]
+
+age10_data_w = dim(heart_data[heart_data$AgeCategory == "65-69" & heart_data$HeartDisease == 1, ])[1]
+age10_data_wo = dim(heart_data[heart_data$AgeCategory == "65-69" & heart_data$HeartDisease == 0, ])[1]
+
+age11_data_w = dim(heart_data[heart_data$AgeCategory == "70-74" & heart_data$HeartDisease == 1, ])[1]
+age11_data_wo = dim(heart_data[heart_data$AgeCategory == "70-74" & heart_data$HeartDisease == 0, ])[1]
+
+age12_data_w = dim(heart_data[heart_data$AgeCategory == "75-79" & heart_data$HeartDisease == 1, ])[1]
+age12_data_wo = dim(heart_data[heart_data$AgeCategory == "75-79" & heart_data$HeartDisease == 0, ])[1]
+
+age13_data_w = dim(heart_data[heart_data$AgeCategory == "80 or older" & heart_data$HeartDisease == 1, ])[1]
+age13_data_wo = dim(heart_data[heart_data$AgeCategory == "80 or older" & heart_data$HeartDisease == 0, ])[1]
+
+ageperc_data = c(round(age1_data_w/age1_data_tot * 100, 2), round(age2_data_w/age2_data_tot * 100, 2), round(age3_data_w/age3_data_tot * 100, 2), round(age4_data_w/age4_data_tot * 100, 2), round(age5_data_w/age5_data_tot * 100, 2), round(age6_data_w/age6_data_tot * 100, 2), round(age7_data_w/age7_data_tot * 100, 2), round(age8_data_w/age8_data_tot * 100, 2), round(age9_data_w/age9_data_tot * 100, 2), round(age10_data_w/age10_data_tot * 100, 2), round(age11_data_w/age11_data_tot * 100, 2), round(age12_data_w/age12_data_tot * 100, 2), round(age13_data_w/age13_data_tot * 100, 2))
+ageperc_table = data.frame(levels(heart_data$AgeCategory), ageperc_data)
+colnames(ageperc_table) = c("Age Category", "Percent with Heart Disease")
+ageperc_table$`Age Category` = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80+")
+
+
+age_data_w = c(age1_data_w, age2_data_w, age3_data_w, age4_data_w, age5_data_w, age6_data_w, age7_data_w, age8_data_w, age9_data_w, age10_data_w, age11_data_w, age12_data_w, age13_data_w)
+
+age_data_wo = c(age1_data_wo, age2_data_wo, age3_data_wo, age4_data_wo, age5_data_wo, age6_data_wo, age7_data_wo, age8_data_wo, age9_data_wo, age10_data_wo, age11_data_wo, age12_data_wo, age13_data_wo)
+
+age_data_counts = data.frame(levels(heart_data$AgeCategory), age_data_w, age_data_wo)
+colnames(age_data_counts) <- c("Age Category", "With Heart Disease", "Without Heart Disease")
+age_data_counts$`Age Category` = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80+")
+
+age_data_counts_melted <- melt(age_data_counts, id.vars = "Age Category")
+colnames(age_data_counts_melted) <- c("Age Category", "Variable", "Count")
+```
+
+```{r, echo=False}
+ggplot(age_data_counts_melted, aes(x = `Age Category`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Age Category", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     ggtitle("Counts of Age Categories with and without heart disease")
+```
+
+We will analyze the percentage of individuals in each age category who have heart disease to determine if there is a trend.
+
+```{r, echo=FALSE}
+kable(ageperc_table) %>% kable_styling()
+```
+
+It appears that as age increases, the percentage of the sample with heart disease also increases based on this sample.
+
+#### Sex
+
+The `Sex` variable Indicates the individual's gender. Males are generally more at risk for heart disease based on this sample. To make sure the graph can be visibly interpreted, the graphs will use a `Log Count`.
+
+```{r, echo=FALSE}
+sexmale_count = dim(heart_data[heart_data$Sex == 1, ])[1]
+sexfemale_count = dim(heart_data[heart_data$Sex == 0, ])[1]
+
+sexmale_data_w = dim(heart_data[heart_data$Sex == 1 & heart_data$HeartDisease == 1, ])[1]
+sexmale_data_wo = dim(heart_data[heart_data$Sex == 1 & heart_data$HeartDisease == 0, ])[1]
+
+sexfemale_data_w = dim(heart_data[heart_data$Sex == 0 & heart_data$HeartDisease == 1, ])[1]
+sexfemale_data_wo = dim(heart_data[heart_data$Sex == 0 & heart_data$HeartDisease == 0, ])[1]
+
+sexperc_data = c(round(sexmale_data_w/sexmale_count * 100, 2), round(sexfemale_data_w/sexfemale_count * 100, 2))
+sexperc_table = data.frame(c("Male", "Female"), sexperc_data)
+colnames(sexperc_table) = c("Sex", "Percent with Heart Disease")
+
+sex_data_w = c(sexmale_data_w, sexfemale_data_w)
+sex_data_wo = c(sexmale_data_wo, sexfemale_data_wo)
+
+sex_data_counts = data.frame(c("Male", "Female"), sex_data_w, sex_data_wo)
+colnames(sex_data_counts) <- c("Sex", "With Heart Disease", "Without Heart Disease")
+
+sex_data_counts_melted <- melt(sex_data_counts, id.vars = "Sex")
+colnames(sex_data_counts_melted) <- c("Sex", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(sex_data_counts_melted, aes(x = `Sex`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Sex", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     geom_hline(yintercept=log(dim(heart_data[heart_data$Sex == 1 & heart_data$HeartDisease == 1,])[1]), linetype='dotted', col = 'red')+
+     ggtitle("Counts of Sex with and without heart disease")
+```
+
+There are more males who have heart disease despite having a smaller sample size. The percentages prove that Males are generally more at risk for heart disease based on this sample.
+
+```{r, echo=FALSE}
+kable(sexperc_table) %>% kable_styling()
+```
+
+
+#### Race
+
+`Race` is the individual's race/ethnicity. The data set only uses Black and White as factors. In this study, white people are more likely to have heart disease than black people. The y-axis is measured in `Log Count`.
+
+```{r, echo=False}
+raceblack_count = dim(heart_data[heart_data$Race == 1, ])[1]
+racewhite_count = dim(heart_data[heart_data$Race == 0, ])[1]
+
+raceblack_data_w = dim(heart_data[heart_data$Race == 1 & heart_data$HeartDisease == 1, ])[1]
+raceblack_data_wo = dim(heart_data[heart_data$Race == 1 & heart_data$HeartDisease == 0, ])[1]
+
+racewhite_data_w = dim(heart_data[heart_data$Race == 0 & heart_data$HeartDisease == 1, ])[1]
+racewhite_data_wo = dim(heart_data[heart_data$Race == 0 & heart_data$HeartDisease == 0, ])[1]
+
+raceperc_data = c(round(raceblack_data_w/raceblack_count * 100, 2), round(racewhite_data_w/racewhite_count * 100, 2))
+raceperc_table = data.frame(c("Black", "White"), raceperc_data)
+colnames(raceperc_table) = c("Race", "Percent with Heart Disease")
+
+race_data_w = c(raceblack_data_w, racewhite_data_w)
+race_data_wo = c(raceblack_data_wo, racewhite_data_wo)
+
+race_data_counts = data.frame(c("Black", "White"), race_data_w, race_data_wo)
+colnames(race_data_counts) <- c("Race", "With Heart Disease", "Without Heart Disease")
+
+race_data_counts_melted <- melt(race_data_counts, id.vars = "Race")
+colnames(race_data_counts_melted) <- c("Race", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(race_data_counts_melted, aes(x = `Race`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Race", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     ggtitle("Counts of Race with and without heart disease")
+```
+
+It's hard to get any information from the `Race` visualization. But looking at percentages, we may be able to find a comparison.
+
+```{r, echo=FALSE}
+kable(raceperc_table) %>% kable_styling()
+```
+
+White people are generally more at risk for developing heart disease based on this sample.
+
+
+
+### Body Condition
+
+The Body Condition visualization section consists of visual relationships between `HeartDisease` and `PhysicalActivity`, `BMI`, `Diabetic`, `Asthma`, and `SkinCancer`.
+
+#### Physical Activity
+
+`PhysicalActivity` is defined as a measure of the individual's physical activity level. The response is binary. 1 if individual gets enough physical activity, 0 if the individual does not.  
+
+```{r, echo=FALSE}
+phystrue_count = dim(heart_data[heart_data$PhysicalActivity == 1, ])[1]
+physfalse_count = dim(heart_data[heart_data$PhysicalActivity == 0, ])[1]
+
+phys_data_w <- heart_data[heart_data$HeartDisease == 1, "PhysicalActivity"]
+phys_data_wo <- heart_data[heart_data$HeartDisease == 0, "PhysicalActivity"]
+
+phystrue_data_w = dim(heart_data[heart_data$PhysicalActivity == 1 & heart_data$HeartDisease == 1, ])[1]
+phystrue_data_wo = dim(heart_data[heart_data$PhysicalActivity == 1 & heart_data$HeartDisease == 0, ])[1]
+
+physfalse_data_w = dim(heart_data[heart_data$PhysicalActivity == 0 & heart_data$HeartDisease == 1, ])[1]
+physfalse_data_wo = dim(heart_data[heart_data$PhysicalActivity == 0 & heart_data$HeartDisease == 0, ])[1]
+
+physperc_data = c(round(phystrue_data_w/phystrue_count * 100, 2), round(physfalse_data_w/physfalse_count * 100, 2))
+physperc_table = data.frame(c("Active", "Inactive"), physperc_data)
+colnames(physperc_table) = c("Physically Active", "Percent with Heart Disease")
+
+phys_data_w = c(phystrue_data_w, physfalse_data_w)
+phys_data_wo = c(phystrue_data_wo, physfalse_data_wo)
+
+phys_data_counts = data.frame(c("Active", "Inactive"), phys_data_w, phys_data_wo)
+colnames(phys_data_counts) <- c("Physically Active", "With Heart Disease", "Without Heart Disease")
+
+phys_data_counts_melted <- melt(phys_data_counts, id.vars = "Physically Active")
+colnames(phys_data_counts_melted) <- c("Physically Active", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(phys_data_counts_melted, aes(x = `Physically Active`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Physically Active", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     geom_hline(yintercept=log(dim(heart_data[heart_data$PhysicalActivity == 1 & heart_data$HeartDisease == 1,])[1]), linetype='dotted', col = 'red') +
+     ggtitle("Counts of Physical Activity with and without heart disease")
+```
+
+```{r, echo=FALSE}
+kable(physperc_table) %>% kable_styling()
+```
+
+#### Body Mass Index
+
+`BMI` is defined as a measure of body fat based on height and weight. In this graph, we take the histogram of the `BMI` for individuals with and without heart disease. We find that the means are similar. I believe that `BMI` does not play an important role in `HeartDisease`.
+
+```{r, echo=FALSE}
+bmi_data_w = heart_data[heart_data$HeartDisease == 1,][c("HeartDisease", "BMI")]
+bmi_data_wo = heart_data[heart_data$HeartDisease == 0,][c("HeartDisease", "BMI")]
+bmi_table <- rbind(bmi_data_w, bmi_data_wo)
+bmi_table$HeartDisease = factor(heart_data$HeartDisease)
+bmi_table = bmi_table[bmi_table$BMI <= 53,]
+
+bmi_w_mean = round(mean(bmi_data_w$BMI),2)
+bmi_wo_mean = round(mean(bmi_data_wo$BMI),2)
+
+bmimean_data = c(bmi_w_mean, bmi_wo_mean)
+bmimean_table = data.frame(c("With Heart Disease", "Without Heart Disease"), bmimean_data)
+colnames(bmimean_table) = c("Heart Status", "BMI Mean")
+
+gghistogram(
+  bmi_table, x = "BMI", rug = TRUE, bins= 46,
+  fill = "HeartDisease", palette = c("grey", "red"), add_density = TRUE
+  )
+```
+
+```{r, echo=FALSE}
+kable(bmimean_table) %>% kable_styling()
+```
+
+#### Diabetes
+
+`Diabetic` indicates if the individual has diabetes or not. From this graph comparison it's hard to tell if it has an impact. It appears that the ratios between non-diabetic and diabetic individuals can give us a better idea of whether `Diabetic` affects `HeartDisease`.
+
+```{r, echo=FALSE}
+Diabetictrue_count = dim(heart_data[heart_data$Diabetic == "Yes", ])[1]
+Diabeticfalse_count = dim(heart_data[heart_data$Diabetic == "No", ])[1]
+
+Diabetic_data_w <- heart_data[heart_data$HeartDisease == 1, "Diabetic"]
+Diabetic_data_wo <- heart_data[heart_data$HeartDisease == 0, "Diabetic"]
+
+Diabetictrue_data_w = dim(heart_data[heart_data$Diabetic == "Yes" & heart_data$HeartDisease == 1, ])[1]
+Diabetictrue_data_wo = dim(heart_data[heart_data$Diabetic == "Yes" & heart_data$HeartDisease == 0, ])[1]
+
+Diabeticfalse_data_w = dim(heart_data[heart_data$Diabetic == "No" & heart_data$HeartDisease == 1, ])[1]
+Diabeticfalse_data_wo = dim(heart_data[heart_data$Diabetic == "No" & heart_data$HeartDisease == 0, ])[1]
+
+Diabeticperc_data = c(round(Diabetictrue_data_w/Diabetictrue_count * 100, 2), round(Diabeticfalse_data_w/Diabeticfalse_count * 100, 2))
+Diabeticperc_table = data.frame(c("Diabetic", "Non-Diabetic"), Diabeticperc_data)
+colnames(Diabeticperc_table) = c("Diabetic Status", "Percent with Heart Disease")
+
+Diabetic_data_w = c(Diabetictrue_data_w, Diabeticfalse_data_w)
+Diabetic_data_wo = c(Diabetictrue_data_wo, Diabeticfalse_data_wo)
+
+Diabetic_data_counts = data.frame(c("Diabetic", "Non-Diabetic"), Diabetic_data_w, Diabetic_data_wo)
+colnames(Diabetic_data_counts) <- c("Diabetic Status", "With Heart Disease", "Without Heart Disease")
+
+Diabetic_data_counts_melted <- melt(Diabetic_data_counts, id.vars = "Diabetic Status")
+colnames(Diabetic_data_counts_melted) <- c("Diabetic Status", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(Diabetic_data_counts_melted, aes(x = `Diabetic Status`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Diabetes", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     ggtitle("Counts of Diabetic with and without heart disease")
+```
+
+```{r, echo=FALSE}
+kable(Diabeticperc_table) %>% kable_styling()
+```
+
+
+#### Asthma
+
+`Asthma` indicates if the individual has asthma or not. From the graph, it appears that there is a difference in individuals with and without asthma.
+
+
+```{r, echo=FALSE}
+asthmatrue_count = dim(heart_data[heart_data$Asthma == 1, ])[1]
+asthmafalse_count = dim(heart_data[heart_data$Asthma == 0, ])[1]
+
+asthma_data_w <- heart_data[heart_data$HeartDisease == 1, "Asthma"]
+asthma_data_wo <- heart_data[heart_data$HeartDisease == 0, "Asthma"]
+
+asthmatrue_data_w = dim(heart_data[heart_data$Asthma == 1 & heart_data$HeartDisease == 1, ])[1]
+asthmatrue_data_wo = dim(heart_data[heart_data$Asthma == 1 & heart_data$HeartDisease == 0, ])[1]
+
+asthmafalse_data_w = dim(heart_data[heart_data$Asthma == 0 & heart_data$HeartDisease == 1, ])[1]
+asthmafalse_data_wo = dim(heart_data[heart_data$Asthma == 0 & heart_data$HeartDisease == 0, ])[1]
+
+asthmperc_data = c(round(asthmatrue_data_w/asthmatrue_count * 100, 2), round(asthmafalse_data_w/asthmafalse_count * 100, 2))
+asthmperc_table = data.frame(c("Has Asthma", "Does not have Asthma"), asthmperc_data)
+colnames(asthmperc_table) = c("Asthma Status", "Percent with Heart Disease")
+
+asthma_data_w = c(asthmatrue_data_w, asthmafalse_data_w)
+asthma_data_wo = c(asthmatrue_data_wo, asthmafalse_data_wo)
+
+asthma_data_counts = data.frame(c("Has Asthma", "Does not have Asthma"), asthma_data_w, asthma_data_wo)
+colnames(asthma_data_counts) <- c("Asthma Status", "With Heart Disease", "Without Heart Disease")
+
+asthma_data_counts_melted <- melt(asthma_data_counts, id.vars = "Asthma Status")
+colnames(asthma_data_counts_melted) <- c("Asthma Status", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(asthma_data_counts_melted, aes(x = `Asthma Status`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Asthma Status", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     ggtitle("Counts of Asthma with and without heart disease")
+```
+
+```{r, echo=FALSE}
+kable(asthmperc_table) %>% kable_styling()
+```
+
+
+#### Skin Cancer
+
+`SkinCancer` indicates whether an individual has skin cancer or not. Because the sample of people with skin cancer and without skin cancer is not equal, the ratios will determine if skin cancer increases risk of `HeartDisease`. From the ratios, it appears that `SkinCancer` does play a role in increased risk of `HeartDisease`.
+
+```{r, echo=FALSE}
+skintrue_count = dim(heart_data[heart_data$SkinCancer == 1, ])[1]
+skinfalse_count = dim(heart_data[heart_data$SkinCancer == 0, ])[1]
+
+heart_data_w <- heart_data[heart_data$HeartDisease == 1, "SkinCancer"]
+heart_data_wo <- heart_data[heart_data$HeartDisease == 0, "SkinCancer"]
+
+skintrue_data_w = dim(heart_data[heart_data$SkinCancer == 1 & heart_data$HeartDisease == 1, ])[1]
+skintrue_data_wo = dim(heart_data[heart_data$SkinCancer == 1 & heart_data$HeartDisease == 0, ])[1]
+
+skinfalse_data_w = dim(heart_data[heart_data$SkinCancer == 0 & heart_data$HeartDisease == 1, ])[1]
+skinfalse_data_wo = dim(heart_data[heart_data$SkinCancer == 0 & heart_data$HeartDisease == 0, ])[1]
+
+skinperc_data = c(round(skintrue_data_w/skintrue_count * 100, 2), round(skinfalse_data_w/skinfalse_count * 100, 2))
+skinperc_table = data.frame(c("With Skin Cancer", "Without Skin Cancer"), skinperc_data)
+colnames(skinperc_table) = c("Skin Cancer", "Percent with Heart Disease")
+
+heart_data_w = c(skintrue_data_w, skinfalse_data_w)
+heart_data_wo = c(skintrue_data_wo, skinfalse_data_wo)
+
+heart_data_counts = data.frame(c("With Skin Cancer", "Without Skin Cancer"), heart_data_w, heart_data_wo)
+colnames(heart_data_counts) <- c("HeartDisease", "With Heart Disease", "Without Heart Disease")
+
+heart_data_counts_melted <- melt(heart_data_counts, id.vars = "HeartDisease")
+colnames(heart_data_counts_melted) <- c("HeartDisease", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(heart_data_counts_melted, aes(x = `HeartDisease`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Skin Cancer", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     ggtitle("Counts of Skin Cancer with and without HeartDisease")
+```
+
+```{r, echo=FALSE}
+kable(skinperc_table) %>% kable_styling()
+```
+
+
+
+
+### Increased Risk
+
+In this subsection, I will go over variables that an individual can change. This includes `Smoking`, `AlcoholDrinking`, and `SleepTime`.
+
+#### Smoking and Alcohol
+
+For `Smoking` and `AlcoholDrinking`, I want to look at each individually and then look at how them together.
+
+##### Smoking
+
+`Smoking` indicates whether the individual smokes or not. From the graph, we can see that `HeartDisease` is more prevalent in smokers. 
+
+```{r, echo=FALSE}
+smoketrue_count = dim(heart_data[heart_data$Smoking == 1, ])[1]
+smokefalse_count = dim(heart_data[heart_data$Smoking == 0, ])[1]
+
+smoke_data_w <- heart_data[heart_data$HeartDisease == 1, "Smoking"]
+smoke_data_wo <- heart_data[heart_data$HeartDisease == 0, "Smoking"]
+
+smoketrue_data_w = dim(heart_data[heart_data$Smoking == 1 & heart_data$HeartDisease == 1, ])[1]
+smoketrue_data_wo = dim(heart_data[heart_data$Smoking == 1 & heart_data$HeartDisease == 0, ])[1]
+
+smokefalse_data_w = dim(heart_data[heart_data$Smoking == 0 & heart_data$HeartDisease == 1, ])[1]
+smokefalse_data_wo = dim(heart_data[heart_data$Smoking == 0 & heart_data$HeartDisease == 0, ])[1]
+
+smokeperc_data = c(round(smoketrue_data_w/smoketrue_count * 100, 2), round(smokefalse_data_w/smokefalse_count * 100, 2))
+smokeperc_table = data.frame(c("Smoker", "Non-Smoker"), smokeperc_data)
+colnames(smokeperc_table) = c("Smoking Status", "Percent with Heart Disease")
+
+smoke_data_w = c(smoketrue_data_w, smokefalse_data_w)
+smoke_data_wo = c(smoketrue_data_wo, smokefalse_data_wo)
+
+smoke_data_counts = data.frame(c("Smoker", "Non-Smoker"), smoke_data_w, smoke_data_wo)
+colnames(smoke_data_counts) <- c("Smoking Status", "With Heart Disease", "Without Heart Disease")
+
+smoke_data_counts_melted <- melt(smoke_data_counts, id.vars = "Smoking Status")
+colnames(smoke_data_counts_melted) <- c("Smoking Status", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(smoke_data_counts_melted, aes(x = `Smoking Status`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Smoking Status", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     geom_hline(yintercept=log(dim(heart_data[heart_data$Smoking == 1 & heart_data$HeartDisease == 1,])[1]), linetype='dotted', col = 'red') +
+     ggtitle("Counts of Smoking with and without heart disease")
+```
+
+```{r, echo=FALSE}
+kable(smokeperc_table) %>% kable_styling()
+```
+
+##### Alcohol
+
+`AlcoholDrinking` indicates whether the individual drinks alcohol or not. Because the study didn't collect an equal amount of participants that drank alcohol, the ratios will tell us if the dirnking has an impact on `HeartDisease`.
+
+```{r, echo=FALSE}
+alcoholtrue_count = dim(heart_data[heart_data$AlcoholDrinking == 1, ])[1]
+alcoholfalse_count = dim(heart_data[heart_data$AlcoholDrinking == 0, ])[1]
+
+alcohol_data_w <- heart_data[heart_data$HeartDisease == 1, "AlcoholDrinking"]
+alcohol_data_wo <- heart_data[heart_data$HeartDisease == 0, "AlcoholDrinking"]
+
+alcoholtrue_data_w = dim(heart_data[heart_data$AlcoholDrinking == 1 & heart_data$HeartDisease == 1, ])[1]
+alcoholtrue_data_wo = dim(heart_data[heart_data$AlcoholDrinking == 1 & heart_data$HeartDisease == 0, ])[1]
+
+alcoholfalse_data_w = dim(heart_data[heart_data$AlcoholDrinking == 0 & heart_data$HeartDisease == 1, ])[1]
+alcoholfalse_data_wo = dim(heart_data[heart_data$AlcoholDrinking == 0 & heart_data$HeartDisease == 0, ])[1]
+
+alcoholperc_data = c(round(alcoholtrue_data_w/alcoholtrue_count * 100, 2), round(alcoholfalse_data_w/alcoholfalse_count * 100, 2))
+alcoholperc_table = data.frame(c("Drinks Alcohol", "Does not drink alcohol"), alcoholperc_data)
+colnames(alcoholperc_table) = c("Alcohol Drinking", "Percent with Heart Disease")
+
+alcohol_data_w = c(alcoholtrue_data_w, alcoholfalse_data_w)
+alcohol_data_wo = c(alcoholtrue_data_wo, alcoholfalse_data_wo)
+
+alcohol_data_counts = data.frame(c("Drinks Alcohol", "Does not drink alcohol"), alcohol_data_w, alcohol_data_wo)
+colnames(alcohol_data_counts) <- c("Alcohol Drinking", "With Heart Disease", "Without Heart Disease")
+
+alcohol_data_counts_melted <- melt(alcohol_data_counts, id.vars = "Alcohol Drinking")
+colnames(alcohol_data_counts_melted) <- c("Alcohol Drinking", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(alcohol_data_counts_melted, aes(x = `Alcohol Drinking`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Alcohol Drinking", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     ggtitle("Counts of Alcohol Drinking with and without heart disease")
+```
+
+```{r, echo=FALSE}
+kable(alcoholperc_table) %>% kable_styling()
+```
+
+##### Smoking and Alcohol
+
+Putting both `Smoking` and `AlcoholDrinking` together, we get information that cannot easily be explained unless we use ratios between those who have heart disease and those who don't. It appears that `AlcoholDrinking` doesn't play too important of a role but `Smoking` nearly doubles the risk of `HeartDisease`.
+
+```{r, echo=FALSE}
+smokedrinktrue_count = dim(heart_data[heart_data$Smoking == 1 & heart_data$AlcoholDrinking == 1, ])[1]
+smokedrinktrue_data_w = dim(heart_data[heart_data$Smoking == 1 & heart_data$AlcoholDrinking == 1 & heart_data$HeartDisease == 1, ])[1]
+smokedrinktrue_data_wo = dim(heart_data[heart_data$Smoking == 1 & heart_data$AlcoholDrinking == 1 & heart_data$HeartDisease == 0, ])[1]
+
+smokedrinkaa_count = dim(heart_data[heart_data$Smoking == 1 & heart_data$AlcoholDrinking == 0, ])[1]
+smokedrinkaa_data_w = dim(heart_data[heart_data$Smoking == 1 & heart_data$AlcoholDrinking == 0 & heart_data$HeartDisease == 1, ])[1]
+smokedrinkaa_data_wo = dim(heart_data[heart_data$Smoking == 1 & heart_data$AlcoholDrinking == 0 & heart_data$HeartDisease == 0, ])[1]
+
+smokedrinkbb_count = dim(heart_data[heart_data$Smoking == 0 & heart_data$AlcoholDrinking == 1, ])[1]
+smokedrinkbb_data_w = dim(heart_data[heart_data$Smoking == 0 & heart_data$AlcoholDrinking == 1 & heart_data$HeartDisease == 1, ])[1]
+smokedrinkbb_data_wo = dim(heart_data[heart_data$Smoking == 0 & heart_data$AlcoholDrinking == 1 & heart_data$HeartDisease == 0, ])[1]
+
+
+smokedrinkfalse_count = dim(heart_data[heart_data$Smoking == 0 & heart_data$AlcoholDrinking == 0, ])[1]
+smokedrinkfalse_data_w = dim(heart_data[heart_data$Smoking == 0 & heart_data$AlcoholDrinking == 0 & heart_data$HeartDisease == 1, ])[1]
+smokedrinkfalse_data_wo = dim(heart_data[heart_data$Smoking == 0 & heart_data$AlcoholDrinking == 0 & heart_data$HeartDisease == 0, ])[1]
+
+smokedrinkperc_data = c(
+  round(smokedrinktrue_data_w/smokedrinktrue_count * 100, 2), 
+  round(smokedrinkbb_data_w/smokedrinkbb_count * 100, 2),
+  round(smokedrinkaa_data_w/smokedrinkaa_count * 100, 2),
+  round(smokedrinkfalse_data_w/smokedrinkfalse_count * 100, 2)
+)
+
+smokedrinkperc_table = data.frame(
+  c("Smoke+Drink", "NonSmoke+Drink","Smoke+NonDrink",  "NonSmoke+NonDrink"), 
+  smokedrinkperc_data
+)
+
+colnames(smokedrinkperc_table) = c("Smoking and Drinking Status", "Percent with Heart Disease")
+
+
+smokedrink_data_w = c(smokedrinktrue_data_w, smokedrinkaa_data_w, smokedrinkbb_data_w, smokedrinkfalse_data_w)
+smokedrink_data_wo = c(smokedrinktrue_data_wo, smokedrinkaa_data_wo, smokedrinkbb_data_wo, smokedrinkfalse_data_wo)
+
+smokedrink_data_counts = data.frame(c("Smoke+Drink", "Smoke+NonDrink", "NonSmoke+Drink", "NonSmoke+NonDrink"), smokedrink_data_w, smokedrink_data_wo)
+colnames(smokedrink_data_counts) <- c("Smoking and Drinking Status", "With Heart Disease", "Without Heart Disease")
+
+smokedrink_data_counts_melted <- melt(smokedrink_data_counts, id.vars = "Smoking and Drinking Status")
+colnames(smokedrink_data_counts_melted) <- c("Smoking and Drinking Status", "Variable", "Count")
+```
+
+```{r, echo=FALSE}
+ggplot(smokedrink_data_counts_melted, aes(x = `Smoking and Drinking Status`, y = log(Count), fill = Variable)) + 
+     geom_bar(stat = "identity", position = "dodge") + 
+     labs(x = "Smoking and Drinking Status", y = "Log Count", fill = "") + 
+     scale_fill_manual(values = c("red", "grey")) + 
+     scale_x_discrete(limits = c("Smoke+Drink", "NonSmoke+Drink","Smoke+NonDrink",  "NonSmoke+NonDrink"))+
+     ggtitle("Counts of Smoking and Drinking with and without heart disease")
+```
+
+```{r, echo=FALSE}
+kable(smokedrinkperc_table) %>% kable_styling()
+```
+
+
+
+
+#### Sleep Time
+
+`SleepTime` is defined as a measure of the individual's average sleep time per night. We find that the means are very similar and probably doesn't have a major impact on the `HeartDisease`.
+
+```{r, echo=FALSE}
+sleeptime_data_w = heart_data[heart_data$HeartDisease == 1,][c("HeartDisease", "SleepTime")]
+sleeptime_data_wo = heart_data[heart_data$HeartDisease == 0,][c("HeartDisease", "SleepTime")]
+sleeptime_table <- rbind(sleeptime_data_w, sleeptime_data_wo)
+sleeptime_table$HeartDisease = factor(heart_data$HeartDisease)
+sleeptime_table = sleeptime_table[sleeptime_table$SleepTime <= 23,]
+
+sleeptime_w_mean = round(mean(sleeptime_data_w$SleepTime),2)
+sleeptime_wo_mean = round(mean(sleeptime_data_wo$SleepTime),2)
+
+sleeptimemean_data = c(sleeptime_w_mean, sleeptime_wo_mean)
+sleeptimemean_table = data.frame(c("With Heart Disease", "Without Heart Disease"), sleeptimemean_data)
+colnames(sleeptimemean_table) = c("Heart Status", "Sleep Time Mean")
+
+gghistogram(
+  sleeptime_table, x = "SleepTime", rug = TRUE, bins= 24,
+  fill = "HeartDisease", palette = c("grey", "red"), #add_density = TRUE
+  )
+```
+
+```{r, echo=FALSE}
+kable(sleeptimemean_table) %>% kable_styling()
+```
+
+
+## Models
+
+### Demographic
+
+Building a logistic model, we use the formula `HeartDisease ~ AgeCategory + Sex + Race` with ridge regression and a 10-fold cross-validation. We get the following results:
+
+```{r, echo=FALSE}
+heart_data = read.csv("~/Desktop/heart.csv")
+
+heart_data$HeartDisease <- ifelse(heart_data$HeartDisease == "Yes", 1, 0)
+heart_data$Smoking <- ifelse(heart_data$Smoking == "Yes", 1, 0)
+heart_data$AlcoholDrinking <- ifelse(heart_data$AlcoholDrinking == "Yes", 1, 0)
+heart_data$Stroke <- ifelse(heart_data$Stroke == "Yes", 1, 0)
+heart_data$DiffWalking <- ifelse(heart_data$DiffWalking == "Yes", 1, 0)
+heart_data$Sex <- ifelse(heart_data$Sex == "Male", 1, 0)
+heart_data$Race <- ifelse(heart_data$Race == "Black", 1, 0)
+heart_data$PhysicalActivity <- ifelse(heart_data$PhysicalActivity == "Yes", 1, 0)
+heart_data$Asthma <- ifelse(heart_data$Asthma == "Yes", 1, 0)
+heart_data$KidneyDisease <- ifelse(heart_data$KidneyDisease == "Yes", 1, 0)
+heart_data$SkinCancer <- ifelse(heart_data$SkinCancer == "Yes", 1, 0)
+
+AgeCategoryLevels = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+
+heart_data$AgeCategory <- as.factor(heart_data$AgeCategory)
+heart_data$Sex <- as.factor(heart_data$Sex)
+heart_data$Race <- as.factor(heart_data$Race)
+heart_data$HeartDisease <- as.factor(heart_data$HeartDisease)
+```
+
+```{r}
+set.seed(123)
+# split data into training and testing sets
+has_heart_disease = heart_data[heart_data$HeartDisease == 1, ]
+not_heart_disease = heart_data[heart_data$HeartDisease == 0, ]
+not_heart_disease = not_heart_disease[sample(nrow(not_heart_disease), dim(has_heart_disease)[1]),]
+new_heart_data = rbind(has_heart_disease, not_heart_disease)
+
+train_index <- createDataPartition(new_heart_data$HeartDisease, p = 0.7, list = FALSE)
+train_data <- new_heart_data[train_index, ]
+test_data <- new_heart_data[-train_index, ]
+
+# define cross-validation method
+tc <- trainControl(method = "cv", number = 10)
+model <- train(
+               form = HeartDisease ~ AgeCategory + Sex + Race,
+               data=train_data,
+               method = "glmnet",
+               trControl = tc,
+               tuneGrid = expand.grid(alpha = 0,
+                                      lambda = seq(0.0001, 1, length = 50)),
+               family = "binomial")
+
+# evaluate model performance
+predictions <- predict(model, newdata = test_data)
+dem_acc <- sum(predictions == test_data$HeartDisease) / dim(test_data)[1]
+
+acc_table = data.frame(Measure="Accuracy", Value=dem_acc)
+kable(acc_table) %>% kable_styling()
+```
+
+Our confidence table looks like the following:
+
+```{r, echo=FALSE}
+conf = confusionMatrix(predictions, test_data$HeartDisease)
+kable(conf$table) %>% kable_styling()
+```
+
+### Body Condition
+
+Building a logistic model, we use the formula `HeartDisease ~ PhysicalActivity + BMI + Diabetic + Asthma + SkinCancer` with ridge regression and a 10-fold cross-validation. We get the following results:
+
+```{r, echo=FALSE}
+heart_data = read.csv("~/Desktop/heart.csv")
+
+heart_data$HeartDisease <- ifelse(heart_data$HeartDisease == "Yes", 1, 0)
+heart_data$Smoking <- ifelse(heart_data$Smoking == "Yes", 1, 0)
+heart_data$AlcoholDrinking <- ifelse(heart_data$AlcoholDrinking == "Yes", 1, 0)
+heart_data$Stroke <- ifelse(heart_data$Stroke == "Yes", 1, 0)
+heart_data$DiffWalking <- ifelse(heart_data$DiffWalking == "Yes", 1, 0)
+heart_data$Sex <- ifelse(heart_data$Sex == "Male", 1, 0)
+heart_data$Race <- ifelse(heart_data$Race == "Black", 1, 0)
+heart_data$PhysicalActivity <- ifelse(heart_data$PhysicalActivity == "Yes", 1, 0)
+heart_data$Asthma <- ifelse(heart_data$Asthma == "Yes", 1, 0)
+heart_data$KidneyDisease <- ifelse(heart_data$KidneyDisease == "Yes", 1, 0)
+heart_data$SkinCancer <- ifelse(heart_data$SkinCancer == "Yes", 1, 0)
+
+AgeCategoryLevels = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+
+heart_data$AgeCategory <- as.factor(heart_data$AgeCategory)
+heart_data$Sex <- as.factor(heart_data$Sex)
+heart_data$Race <- as.factor(heart_data$Race)
+heart_data$HeartDisease <- as.factor(heart_data$HeartDisease)
+```
+
+```{r}
+set.seed(123)
+# split data into training and testing sets
+has_heart_disease = heart_data[heart_data$HeartDisease == 1, ]
+not_heart_disease = heart_data[heart_data$HeartDisease == 0, ]
+not_heart_disease = not_heart_disease[sample(nrow(not_heart_disease), dim(has_heart_disease)[1]),]
+new_heart_data = rbind(has_heart_disease, not_heart_disease)
+
+train_index <- createDataPartition(new_heart_data$HeartDisease, p = 0.7, list = FALSE)
+train_data <- new_heart_data[train_index, ]
+test_data <- new_heart_data[-train_index, ]
+
+# define cross-validation method
+tc <- trainControl(method = "cv", number = 10)
+model <- train(
+               form = HeartDisease ~ PhysicalActivity + BMI + Diabetic + Asthma + SkinCancer,
+               data=train_data,
+               method = "glmnet",
+               trControl = tc,
+               tuneGrid = expand.grid(alpha = 0,
+                                      lambda = seq(0.0001, 1, length = 50)),
+               family = "binomial")
+
+# evaluate model performance
+predictions <- predict(model, newdata = test_data)
+bod_acc <- sum(predictions == test_data$HeartDisease) / dim(test_data)[1]
+
+acc_table = data.frame(Measure="Accuracy", Value=bod_acc)
+kable(acc_table) %>% kable_styling()
+```
+
+Our confidence table looks like the following:
+
+```{r, echo=FALSE}
+conf = confusionMatrix(predictions, test_data$HeartDisease)
+kable(conf$table) %>% kable_styling()
+```
+
+### Increased Risk
+
+Building a logistic model, we use the formula `HeartDisease ~ Smoking + AlcoholDrinking + Smoking:AlcoholDrinking + SleepTime` with ridge regression and a 10-fold cross-validation. We get the following results:
+
+```{r, echo=FALSE}
+heart_data = read.csv("~/Desktop/heart.csv")
+
+heart_data$HeartDisease <- ifelse(heart_data$HeartDisease == "Yes", 1, 0)
+heart_data$Smoking <- ifelse(heart_data$Smoking == "Yes", 1, 0)
+heart_data$AlcoholDrinking <- ifelse(heart_data$AlcoholDrinking == "Yes", 1, 0)
+heart_data$Stroke <- ifelse(heart_data$Stroke == "Yes", 1, 0)
+heart_data$DiffWalking <- ifelse(heart_data$DiffWalking == "Yes", 1, 0)
+heart_data$Sex <- ifelse(heart_data$Sex == "Male", 1, 0)
+heart_data$Race <- ifelse(heart_data$Race == "Black", 1, 0)
+heart_data$PhysicalActivity <- ifelse(heart_data$PhysicalActivity == "Yes", 1, 0)
+heart_data$Asthma <- ifelse(heart_data$Asthma == "Yes", 1, 0)
+heart_data$KidneyDisease <- ifelse(heart_data$KidneyDisease == "Yes", 1, 0)
+heart_data$SkinCancer <- ifelse(heart_data$SkinCancer == "Yes", 1, 0)
+
+AgeCategoryLevels = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+
+heart_data$AgeCategory <- as.factor(heart_data$AgeCategory)
+heart_data$Sex <- as.factor(heart_data$Sex)
+heart_data$Race <- as.factor(heart_data$Race)
+heart_data$HeartDisease <- as.factor(heart_data$HeartDisease)
+```
+
+```{r}
+set.seed(123)
+# split data into training and testing sets
+has_heart_disease = heart_data[heart_data$HeartDisease == 1, ]
+not_heart_disease = heart_data[heart_data$HeartDisease == 0, ]
+not_heart_disease = not_heart_disease[sample(nrow(not_heart_disease), dim(has_heart_disease)[1]),]
+new_heart_data = rbind(has_heart_disease, not_heart_disease)
+
+train_index <- createDataPartition(new_heart_data$HeartDisease, p = 0.7, list = FALSE)
+train_data <- new_heart_data[train_index, ]
+test_data <- new_heart_data[-train_index, ]
+
+# define cross-validation method
+tc <- trainControl(method = "cv", number = 10)
+model <- train(
+               form = HeartDisease ~ Smoking + AlcoholDrinking + Smoking:AlcoholDrinking + SleepTime,
+               data=train_data,
+               method = "glmnet",
+               trControl = tc,
+               tuneGrid = expand.grid(alpha = 0,
+                                      lambda = seq(0.0001, 1, length = 50)),
+               family = "binomial")
+
+# evaluate model performance
+predictions <- predict(model, newdata = test_data)
+inc_acc <- sum(predictions == test_data$HeartDisease) / dim(test_data)[1]
+
+acc_table = data.frame(Measure="Accuracy", Value=inc_acc)
+kable(acc_table) %>% kable_styling()
+```
+
+Our confidence table looks like the following:
+
+```{r, echo=FALSE}
+conf = confusionMatrix(predictions, test_data$HeartDisease)
+kable(conf$table) %>% kable_styling()
+```
+
+### Overall
+
+Building a logistic model, we use the formula `HeartDisease ~ AgeCategory + Sex + Race + PhysicalActivity` 
+`+ BMI + Diabetic + Asthma + SkinCancer + Smoking + AlcoholDrinking + Smoking:AlcoholDrinking + SleepTime` with ridge regression and a 10-fold cross-validation. We get the following results:
+
+```{r, echo=FALSE}
+heart_data = read.csv("~/Desktop/heart.csv")
+
+heart_data$HeartDisease <- ifelse(heart_data$HeartDisease == "Yes", 1, 0)
+heart_data$Smoking <- ifelse(heart_data$Smoking == "Yes", 1, 0)
+heart_data$AlcoholDrinking <- ifelse(heart_data$AlcoholDrinking == "Yes", 1, 0)
+heart_data$Stroke <- ifelse(heart_data$Stroke == "Yes", 1, 0)
+heart_data$DiffWalking <- ifelse(heart_data$DiffWalking == "Yes", 1, 0)
+heart_data$Sex <- ifelse(heart_data$Sex == "Male", 1, 0)
+heart_data$Race <- ifelse(heart_data$Race == "Black", 1, 0)
+heart_data$PhysicalActivity <- ifelse(heart_data$PhysicalActivity == "Yes", 1, 0)
+heart_data$Asthma <- ifelse(heart_data$Asthma == "Yes", 1, 0)
+heart_data$KidneyDisease <- ifelse(heart_data$KidneyDisease == "Yes", 1, 0)
+heart_data$SkinCancer <- ifelse(heart_data$SkinCancer == "Yes", 1, 0)
+
+AgeCategoryLevels = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+
+heart_data$AgeCategory <- as.factor(heart_data$AgeCategory)
+heart_data$Sex <- as.factor(heart_data$Sex)
+heart_data$Race <- as.factor(heart_data$Race)
+heart_data$HeartDisease <- as.factor(heart_data$HeartDisease)
+```
+
+```{r}
+set.seed(321)
+# split data into training and testing sets
+has_heart_disease = heart_data[heart_data$HeartDisease == 1, ]
+not_heart_disease = heart_data[heart_data$HeartDisease == 0, ]
+not_heart_disease = not_heart_disease[sample(nrow(not_heart_disease), dim(has_heart_disease)[1]),]
+new_heart_data = rbind(has_heart_disease, not_heart_disease)
+
+train_index <- createDataPartition(new_heart_data$HeartDisease, p = 0.7, list = FALSE)
+train_data <- new_heart_data[train_index, ]
+test_data <- new_heart_data[-train_index, ]
+
+# define cross-validation method
+tc <- trainControl(method = "cv", number = 10)
+model <- train(
+               form = HeartDisease ~ AgeCategory + Sex + Race + PhysicalActivity + BMI + Diabetic + Asthma + SkinCancer + Smoking + AlcoholDrinking + Smoking:AlcoholDrinking + SleepTime,
+               data=train_data,
+               method = "glmnet",
+               trControl = tc,
+               tuneGrid = expand.grid(alpha = 0,
+                                      lambda = seq(0.0001, 1, length = 50)),
+               family = "binomial")
+
+# evaluate model performance
+predictions <- predict(model, newdata = test_data)
+ove_acc <- sum(predictions == test_data$HeartDisease) / dim(test_data)[1]
+
+acc_table = data.frame(Measure="Accuracy", Value=ove_acc)
+kable(acc_table) %>% kable_styling()
+```
+
+Our confidence table looks like the following:
+
+```{r, echo=FALSE}
+conf = confusionMatrix(predictions, test_data$HeartDisease)
+kable(conf$table) %>% kable_styling()
+```
+
+### Entire Data Set
+
+Building a logistic model, we use the formula `HeartDisease ~ . + Smoking:AlcoholDrinking + AgeCategory:PhysicalActivity` with ridge regression and a 5-fold cross-validation. We get the following results:
+
+```{r, echo=FALSE}
+heart_data = read.csv("~/Desktop/heart.csv")
+
+heart_data$HeartDisease <- ifelse(heart_data$HeartDisease == "Yes", 1, 0)
+heart_data$Smoking <- ifelse(heart_data$Smoking == "Yes", 1, 0)
+heart_data$AlcoholDrinking <- ifelse(heart_data$AlcoholDrinking == "Yes", 1, 0)
+heart_data$Stroke <- ifelse(heart_data$Stroke == "Yes", 1, 0)
+heart_data$DiffWalking <- ifelse(heart_data$DiffWalking == "Yes", 1, 0)
+heart_data$Sex <- ifelse(heart_data$Sex == "Male", 1, 0)
+heart_data$Race <- ifelse(heart_data$Race == "Black", 1, 0)
+heart_data$PhysicalActivity <- ifelse(heart_data$PhysicalActivity == "Yes", 1, 0)
+heart_data$Asthma <- ifelse(heart_data$Asthma == "Yes", 1, 0)
+heart_data$KidneyDisease <- ifelse(heart_data$KidneyDisease == "Yes", 1, 0)
+heart_data$SkinCancer <- ifelse(heart_data$SkinCancer == "Yes", 1, 0)
+
+AgeCategoryLevels = c("18-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80 or older")
+
+heart_data$AgeCategory <- as.factor(heart_data$AgeCategory)
+heart_data$Sex <- as.factor(heart_data$Sex)
+heart_data$Race <- as.factor(heart_data$Race)
+heart_data$HeartDisease <- as.factor(heart_data$HeartDisease)
+```
+
+```{r}
+set.seed(321)
+# split data into training and testing sets
+has_heart_disease = heart_data[heart_data$HeartDisease == 1, ]
+not_heart_disease = heart_data[heart_data$HeartDisease == 0, ]
+not_heart_disease = not_heart_disease[sample(nrow(not_heart_disease), dim(has_heart_disease)[1]),]
+new_heart_data = rbind(has_heart_disease, not_heart_disease)
+
+train_index <- createDataPartition(new_heart_data$HeartDisease, p = 0.7, list = FALSE)
+train_data <- new_heart_data[train_index, ]
+test_data <- new_heart_data[-train_index, ]
+
+# define cross-validation method
+tc <- trainControl(method = "cv", number = 10)
+model <- train(
+               form = HeartDisease ~ . + Smoking:AlcoholDrinking + AgeCategory:PhysicalActivity,
+               data=train_data,
+               method = "glmnet",
+               trControl = tc,
+               tuneGrid = expand.grid(alpha = 0,
+                                      lambda = seq(0.0001, 1, length = 50)),
+               family = "binomial")
+
+# evaluate model performance
+predictions <- predict(model, newdata = test_data)
+ent_acc <- sum(predictions == test_data$HeartDisease) / dim(test_data)[1]
+
+acc_table5 = data.frame(Measure="Accuracy", Value=ent_acc)
+kable(acc_table5) %>% kable_styling()
+```
+
+Our confidence table looks like the following:
+
+```{r, echo=FALSE}
+conf = confusionMatrix(predictions, test_data$HeartDisease)
+kable(conf$table) %>% kable_styling()
+```
+
+## Results, Analysis, and Discussion
+
+For the Demographics questions, we get an accuracy of `r dem_acc`. This result makes sense because demographic information won't be able to determine `HeartDisease` alone. 
+
+For the Body Condition questions, we get an accuracy of `r bod_acc`. This result make sense because the condition of a body should inform an individual about the future state of their health if they don't do anything about it.
+
+For the Increased Risk questions, we get an accuracy of `r inc_acc`. This result challenges the activities we do that may seem to put our heart at risk for heart disease but don't do so as efficiently as we thought.
+
+For the Overall model, we get an accuracy of `r ove_acc`. This does not include the other variables that we decided to leave out. It scores relatively well but the model still doesn't confirm anything.
+
+For the Entire Data Set model, we get an accuracy of `r ent_acc`. This model is still not good enough to work as a diagnosis for heart disease. I believe that there are variables left out of the data set. A few particular variables that I wish were included are: Father's history of Heart Disease, Mother's history of Heart Disease, Genetics, other cancers, previous heart problems, and dietary consumption.
+
+## Impact
+
+The model may not be able to predict whether you have heart disease or not, however, the model is sufficient enough to give you a lead on what steps should be taken to ensure you don't get heart disease.
+
+From the report, I believe that staying active, eating healthy, and not smoking should help an individual to stay away from heart disease. These habits can help as you enter an older age where heart disease becomes more common.
+
